@@ -5,20 +5,17 @@
 #include<vector>
 #include<array>
 #include<cstdio>
-
 bool isGitCommand(const std::string_view line){
     return line.rfind("git ",0) == 0;
 }
-
 std::string findLastGitCommand(const std::vector<std::string>& history){
-    for(int i=history.size()-1;i>=0;i--){
-        if(isGitCommand(history[i])){
+    for (size_t i = history.size(); i-- > 0; ) {
+        if (isGitCommand(history[i])) {
             return history[i];
         }
     }
     return "";
 }
-
 std::string getHistoryPath(const std::string& shell){
     const char* home = std::getenv("HOME");
     if(!home) return "";
@@ -28,23 +25,36 @@ std::string getHistoryPath(const std::string& shell){
         return std::string(home) + "/.bash_history";
     return "";
 }
-
 std::vector<std::string> readHistory(const std::string& path){
     std::ifstream file(path);
     std::vector<std::string> lines;
-    if(!file.is_open()){
-        return lines;
-    }
+    if (!file.is_open()) return lines;
     std::string line;
-    while(std::getline(file,line)){
-        if(!line.empty())
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        auto pos = line.find(';');
+        if (pos != std::string::npos) {
+            lines.push_back(line.substr(pos + 1));
+        } else {
             lines.push_back(line);
+        }
     }
     return lines;
+}
+void flushShellHistory(const char* shell) {
+    if (!shell) return;
+    std::string shellStr(shell);
+    if (shellStr.find("zsh") != std::string::npos) {
+        system("zsh -c 'fc -W'");
+    } 
+    else if (shellStr.find("bash") != std::string::npos) {
+        system("bash -c 'history -w'");
+    }
 }
 
 int main(){
     const char* shell = std::getenv("SHELL");
+    flushShellHistory(shell);
     std::string historyPath = getHistoryPath(shell);
     if (historyPath.empty()){
         std::cerr << "Unsupported shell\n";
