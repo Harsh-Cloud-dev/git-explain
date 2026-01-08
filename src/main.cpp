@@ -51,6 +51,22 @@ void flushShellHistory(const char* shell) {
         system("bash -c 'history -w'");
     }
 }
+std::string runcommand(std::string& command, int& ExitCode){
+    std::array<char,256> buffer;
+    std::string result;
+    std::string cmd = command + "2<&1";
+    FILE* pipe = popen(cmd.c_str(),"r");
+    if(!pipe){
+        ExitCode = -1;
+        return "Failed to execute command";
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        result += buffer.data();
+    }
+
+    ExitCode = pclose(pipe);
+    return result;
+}
 
 int main(){
     const char* shell = std::getenv("SHELL");
@@ -73,5 +89,18 @@ int main(){
         return EXIT_FAILURE;
     }
     std::cout<<"Last git command found : "<<lastGitCmd<<std::endl;
+
+    int ExitCode = 0;
+    std::string output = runcommand(lastGitCmd,ExitCode);
+    if(ExitCode == 0){
+        std::cout<<"Git command succeeded. Nothing to show"<<std::endl;
+        return 0;
+    }
+    else{
+        std::cout<<"Git command failed"<<std::endl;
+        std::cout<<"Raw Git output:"<<std::endl;
+        std::cout<<output<<std::endl;
+    }
+    
     return EXIT_SUCCESS;
 }
