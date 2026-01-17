@@ -1,23 +1,23 @@
 #include<iostream>
-std::string historypath(std::string_view point){
+std::string historypath(std::string_view shell){
     const char* home = std::getenv("HOME");
-    if (!home) return "";
-    if(point.find(".zsh") != std::string::npos){
-        for(int i=0;home[i]!='\0';i++){
-            std::cout<<home[i];
-        }
-        return std::string(home) + std::string(point);
+    std::string user = std::string(std::getenv("USER"));
+    std::cout<<"User found : "<<user<<std::endl;
+    if(home){
+        return std::string(home) + "/.zsh_history";
+    }else{
+        std::cerr<<"Not found"<<std::endl;
     }
     return "";
 }
 int main(){
-    char *point = std::getenv("SHELL");
-    if(!point){
-        std::cerr<<"Couldn't find the given Shell"<<std::endl;
+    const char* shell = std::getenv("SHELL");
+    if(shell){
+        std::cout<<"Found it"<<std::endl;
+    }else{
+        std::cerr<<"Not found"<<std::endl;
+        return EXIT_FAILURE;
     }
-    else{
-        std::cout<<"Found it!"<<std::endl;
-    }
-    std::cout<<historypath(point)<<std::endl;
+    std::string path = historypath(shell);
     return EXIT_SUCCESS;
 }
