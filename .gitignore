@@ -1,2 +1,4 @@
-forme.txt
-src/main
+git-explain
+run_tests
+.DS_Store
+*.o
