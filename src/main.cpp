@@ -1,212 +1,119 @@
 #include <iostream>
-#include <cstdlib>
-#include <string>
-#include <fstream>
 #include <vector>
-#include <array>
-#include <cstdio>
-#include <sys/wait.h>
+#include <string>
+#include <chrono>
+#include <cstdlib>
 
-/* ---------------- Utility ---------------- */
+#ifndef _WIN32
+  #include <unistd.h>
+#endif
 
-std::string cleanHistoryLine(const std::string& line) {
-    auto pos = line.find(';');
-    if (pos != std::string::npos)
-        return line.substr(pos + 1);
-    return line;
+#include "executor/executor.hpp"
+#include "detection/detector.hpp"
+#include "recovery/recovery.hpp"
+#include "history/history.hpp"
+#include "ui/ui.hpp"
+
+using namespace git_explain;
+
+static void print_version() {
+    std::cout << "git-explain version 0.1.0\n";
 }
 
-bool isGitCommand(const std::string& line) {
-    return line.rfind("git ", 0) == 0;
-}
+int main(int argc, char* argv[]) {
+    
+    std::vector<std::string> args(argv + 1, argv + argc);
 
-/* ---------------- History ---------------- */
+    bool color = UI::detect_color_support();
+    UI   ui(std::cout, color);
 
-std::string getHistoryPath(const std::string& shell) {
-    const char* home = std::getenv("HOME");
-    if (!home) return "";
-
-    if (shell.find("zsh") != std::string::npos)
-        return std::string(home) + "/.zsh_history";
-
-    if (shell.find("bash") != std::string::npos)
-        return std::string(home) + "/.bash_history";
-
-    return "";
-}
-
-std::vector<std::string> readHistory(const std::string& path) {
-    std::ifstream file(path);
-    std::vector<std::string> lines;
-
-    if (!file.is_open()) return lines;
-
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty()) continue;
-        lines.push_back(cleanHistoryLine(line));
+    
+    if (args.empty() || args[0] == "--help" || args[0] == "-h") {
+        ui.print_usage();
+        return 0;
     }
-    return lines;
-}
-
-std::string findLastGitCommand(const std::vector<std::string>& history) {
-    for (size_t i = history.size(); i-- > 0;) {
-        if (isGitCommand(history[i])) {
-            return history[i];
-        }
-    }
-    return "";
-}
-
-void flushShellHistory(const char* shell) {
-    if (!shell) return;
-
-    std::string s(shell);
-    if (s.find("zsh") != std::string::npos) {
-        system("zsh -c 'fc -W'");
-    } else if (s.find("bash") != std::string::npos) {
-        system("bash -c 'history -w'");
-    }
-}
-
-/* ---------------- Command Execution ---------------- */
-
-std::string runCommand(const std::string& command, int& exitCode) {
-    std::array<char, 256> buffer{};
-    std::string result;
-    std::string cmd = command + " 2>&1";
-
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        exitCode = -1;
-        return "Failed to execute command";
+    if (args[0] == "--version" || args[0] == "-v") {
+        print_version();
+        return 0;
     }
 
-    while (fgets(buffer.data(), buffer.size(), pipe)) {
-        result += buffer.data();
+    History history;
+    history.load();
+
+    if (args[0] == "--history") {
+        ui.print_history(history.recent(30));
+        return 0;
     }
 
-    int status = pclose(pipe);
-    if (WIFEXITED(status))
-        exitCode = WEXITSTATUS(status);
-    else
-        exitCode = -1;
+    
+    char cwd_buf[4096] = {};
+    std::string working_dir;
+#ifndef _WIN32
+    if (getcwd(cwd_buf, sizeof(cwd_buf))) working_dir = cwd_buf;
+#endif
 
-    return result;
-}
-std::string explainPushError(const std::string& error) {
+    
+    
+    
+    
+    
+    if (Executor::needs_passthrough(args)) {
+        Executor executor;
+        ExecuteResult result = executor.run_passthrough(args);
 
-    if (error.find("src refspec") != std::string::npos &&
-        error.find("does not match any") != std::string::npos) {
+        HistoryEntry entry;
+        entry.command     = Executor::build_command(args);
+        entry.exit_code   = result.exit_code;
+        entry.had_error   = result.exit_code != 0;
+        entry.working_dir = working_dir;
+        entry.timestamp   = std::chrono::system_clock::now();
+        if (entry.had_error) entry.error_type = "(interactive command — not diagnosed)";
+        history.add(entry);
+        history.save();
 
-        return
-        "You are trying to push a branch that does not exist locally.\n\n"
-        "Why this happens:\n"
-        "• You haven't created the branch yet\n"
-        "• You made a typo in the branch name\n"
-        "• You haven't made your first commit\n\n"
-        "How to fix it:\n"
-        "→ Check your branch: git branch\n"
-        "→ Create one if needed: git checkout -b main\n"
-        "→ Make a commit, then push again\n";
+        ui.print_passthrough_banner(result.exit_code == 0, entry.command);
+        return result.exit_code;
     }
 
-    if (error.find("failed to push some refs") != std::string::npos) {
-        return
-        "Your local branch is behind the remote branch.\n\n"
-        "Why this happens:\n"
-        "• Someone else pushed changes\n"
-        "• The remote branch has new commits\n\n"
-        "How to fix it:\n"
-        "→ git pull --rebase\n"
-        "→ Resolve conflicts if prompted\n"
-        "→ git push\n";
+    
+    Executor executor;
+    ExecuteResult result = executor.git(args);
+
+    
+    HistoryEntry entry;
+    entry.command     = Executor::build_command(args);
+    entry.exit_code   = result.exit_code;
+    entry.had_error   = result.exit_code != 0;
+    entry.working_dir = working_dir;
+    entry.timestamp   = std::chrono::system_clock::now();
+
+    
+    
+    
+    
+    if (result.exit_code == 0) {
+        ui.print_banner(true, entry.command);
+        history.add(entry);
+        history.save();
+        return 0;
     }
 
-    if (error.find("permission denied") != std::string::npos ||
-        error.find("publickey") != std::string::npos) {
+    
+    
+    
+    ui.print_banner(false, entry.command);
 
-        return
-        "Git could not authenticate you with the remote repository.\n\n"
-        "Why this happens:\n"
-        "• SSH key is missing or not added to GitHub\n"
-        "• Wrong GitHub account\n\n"
-        "How to fix it:\n"
-        "→ Check SSH: ssh -T git@github.com\n"
-        "→ Add SSH key to GitHub\n";
-    }
+    Detector   detector;
+    Recovery   recovery;
 
-    if (error.find("repository not found") != std::string::npos) {
-        return
-        "The remote repository does not exist or you don't have access.\n\n"
-        "Why this happens:\n"
-        "• Wrong repository URL\n"
-        "• Repository was deleted or made private\n\n"
-        "How to fix it:\n"
-        "→ Check remote: git remote -v\n"
-        "→ Verify repository URL on GitHub\n";
-    }
+    GitError          error      = detector.detect(result, args);
+    RecoverySuggestion suggestion = recovery.suggest(error);
 
-    return "";
-}
+    entry.error_type = error_type_name(error.type);
+    history.add(entry);
+    history.save();
 
-/* ---------------- main ---------------- */
+    ui.print_analysis(error, suggestion);
 
-int main() {
-    const char* shell = std::getenv("SHELL");
-    flushShellHistory(shell);
-
-    if (!shell) {
-        std::cerr << "❌ Could not detect shell\n";
-        return EXIT_FAILURE;
-    }
-
-    std::string historyPath = getHistoryPath(shell);
-    if (historyPath.empty()) {
-        std::cerr << "❌ Unsupported shell\n";
-        return EXIT_FAILURE;
-    }
-
-    std::cout << "History file: " << historyPath << "\n";
-
-    auto history = readHistory(historyPath);
-    if (history.empty()) {
-        std::cerr << "❌ Could not read history file\n";
-        return EXIT_FAILURE;
-    }
-
-    std::cout << "History loaded, total commands = "
-              << history.size() << "\n";
-
-    std::string lastGitCmd = findLastGitCommand(history);
-    if (lastGitCmd.empty()) {
-        std::cerr << "❌ No recent git command found\n";
-        return EXIT_FAILURE;
-    }
-
-    std::cout << "Last git command: " << lastGitCmd << "\n";
-
-    int exitCode = 0;
-    std::string output = runCommand(lastGitCmd, exitCode);
-
-    if (exitCode == 0) {
-        std::cout << "✅ Git command succeeded. Nothing to explain.\n";
-        return EXIT_SUCCESS;
-    }
-
-    std::cout << "\n❌ Git command failed\n\n";
-    if (lastGitCmd.find("git push") == 0) {
-    std::string explanation = explainPushError(output);
-
-    if (!explanation.empty()) {
-        std::cout << explanation;
-        return EXIT_SUCCESS;
-    }
-}
-
-std::cout << "Raw Git error:\n";
-std::cout << output << "\n";
-
-
-    return EXIT_SUCCESS;
+    return result.exit_code;
 }
